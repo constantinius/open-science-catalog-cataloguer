@@ -1,13 +1,13 @@
 import asyncio
-from os.path import basename, dirname, join
-from typing import List, Optional, Iterable, Tuple
+from typing import List, Tuple, Optional
 from urllib.parse import urlparse
 import logging
+import re
 
 from lxml.html import fromstring as html_fromstring
 import httpx
 
-from .types import ScrapeNode
+from .node import ScrapeNode
 
 
 LOGGER = logging.getLogger(__name__)
@@ -24,19 +24,20 @@ async def expand_links(
 
 
 def organize_links(
-    base_href: str, links: List[str]
+    base_href: str,
+    links: List[str],
+    directory_re: re.Pattern,
+    file_re: re.Pattern,
 ) -> Tuple[List[str], List[str]]:
     directories = []
     files = []
     for link in links:
         if base_href not in link:
             continue
-        if urlparse(link).query:
-            continue
-        elif link.endswith("/"):
+
+        if directory_re.match(link):
             directories.append(link)
-        else:
-            # TODO: better heuristic
+        elif file_re.match(link):
             files.append(link)
 
     return directories, files
@@ -46,24 +47,23 @@ async def _scrape_links(
     base_href: str,
     visited: set,
     client: httpx.AsyncClient,
+    directory_re: re.Pattern,
+    file_re: re.Pattern,
     throttler: asyncio.Semaphore,
 ) -> ScrapeNode:
     visited.add(base_href)
     LOGGER.info(f"scraping {base_href}")
 
     links = await expand_links(base_href, client, throttler)
-    sub_directories, leaf_files = organize_links(base_href, links)
+    sub_directories, leaf_files = organize_links(
+        base_href, links, directory_re, file_re
+    )
 
-    # links = [
-    #     (base_href, link)
-    #     for link in await expand_links(base_href, client, throttler)
-    #     if base_href in link
-    #     and not urlparse(link).query
-    #     and link not in visited
-    # ]
     sub_nodes = await asyncio.gather(
         *[
-            _scrape_links(link, visited, client, throttler)
+            _scrape_links(
+                link, visited, client, directory_re, file_re, throttler
+            )
             for link in sub_directories
             if link not in visited
         ]
@@ -73,12 +73,22 @@ async def _scrape_links(
 
 
 async def scrape_links(
-    base_href: str, throttle_requests: int = 10
+    base_href: str,
+    throttle_requests: int = 10,
+    directory_pattern: str = r"/$",
+    file_pattern: str = r".*",
 ) -> List[Tuple[str, str]]:
     visited = set()
     throttler = asyncio.Semaphore(throttle_requests)
     async with httpx.AsyncClient() as client:
-        return await _scrape_links(base_href, visited, client, throttler)
+        return await _scrape_links(
+            base_href,
+            visited,
+            client,
+            re.compile(directory_pattern),
+            re.compile(file_pattern),
+            throttler,
+        )
 
 
 # (path, sub_catalogs, leaf_items)

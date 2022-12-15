@@ -10,6 +10,7 @@ import logging
 
 from osgeo import gdal
 import pystac
+from dateutil.parser import parse as parse_datetime
 
 from pystac.common_metadata import CommonMetadata
 from pystac.extensions.datacube import (
@@ -22,6 +23,7 @@ from pystac.extensions.datacube import (
     AdditionalDimension,
     Variable,
     VariableType,
+    DimensionType,
 )
 from pystac import Asset
 
@@ -29,9 +31,6 @@ from pystac import Asset
 LOGGER = logging.getLogger(__name__)
 
 gdal.UseExceptions()
-
-
-UNIT_RE = re.compile(r"(\w+) since (.*)")
 
 
 async def run_in_executor(func: Any, *args) -> Any:
@@ -47,6 +46,9 @@ async def run_in_executor(func: Any, *args) -> Any:
     return await asyncio.get_running_loop().run_in_executor(None, func, *args)
 
 
+UNIT_RE = re.compile(r"(\w+) since (.*)")
+
+
 def get_time_offset_and_step(unit: str) -> Tuple[datetime, timedelta]:
     match = UNIT_RE.match(unit)
     if match:
@@ -55,6 +57,28 @@ def get_time_offset_and_step(unit: str) -> Tuple[datetime, timedelta]:
         step = timedelta(**{step_unit: 1})
         return offset, step
     raise ValueError("Failed to parse time unit")
+
+
+def get_dimension_type(dimension: dict) -> str:
+    typ = dimension.get("type")
+    if typ:
+        return typ
+
+    name = dimension["name"].lower()
+    if name == "lon":
+        return "HORIZONTAL_X"
+    elif name == "lat":
+        return "HORIZONTAL_Y"
+    elif name in ("z", "elevation"):
+        return "VERTICAL"
+    elif name == "time":
+        return "TEMPORAL"
+
+
+def get_dimension_array(ds: gdal.Dataset, dimension_name: str):
+    root = ds.GetRootGroup()
+    md_arr = root.OpenMDArrayFromFullname(dimension_name)
+    return md_arr.ReadAsArray()
 
 
 async def gdal_mdiminfo_to_datacube(
@@ -74,19 +98,25 @@ async def gdal_mdiminfo_to_datacube(
 
     LOGGER.debug(f"getting mdiminfo for {url}")
     dimensions = {}
+    async with throttler:
+        ds = gdal.OpenEx(f"/vsicurl/{url}", gdal.OF_MULTIDIM_RASTER)
 
     for dim in info["dimensions"]:
-        typ = dim["type"]
-        async with throttler:
-            ds = await run_in_executor(
-                gdal.Open,
-                f'{info["driver"].upper()}:/vsicurl/"{url}":'
-                f'{dim["indexing_variable"]}',
-            )
+        typ = get_dimension_type(dim)
+        # async with throttler:
+        #     ds = await run_in_executor(
+        #         gdal.Open,
+        #         f'{info["driver"].upper()}:/vsicurl/"{url}":'
+        #         f'{dim["indexing_variable"]}',
+        #     )
 
         # indexing variables are always 1D
         async with throttler:
-            data = (await run_in_executor(ds.ReadAsArray))[0]
+            data = await run_in_executor(
+                get_dimension_array, ds, dim["indexing_variable"]
+            )
+
+            print(dim, data, data.shape)
 
         diff = np.diff(data)
         if len(diff) > 1:
@@ -102,7 +132,7 @@ async def gdal_mdiminfo_to_datacube(
 
         #
         array_info = info["arrays"][dim["indexing_variable"][1:]]
-        unit = array_info["unit"]
+        unit = array_info.get("unit")
 
         properties = {}
         if typ in ("HORIZONTAL_X", "HORIZONTAL_Y"):
@@ -129,7 +159,9 @@ async def gdal_mdiminfo_to_datacube(
             unit = None
         else:
             cls = AdditionalDimension
+            typ = "OTHER"
 
+        properties["type"] = typ
         properties["extent"] = extent
         properties["step"] = step
         if not evenly_spaced:
@@ -165,12 +197,7 @@ async def extend_item(
     common = CommonMetadata(item)
     now = datetime.now()
     item.datetime = None
-    common.start_datetime = datetime.fromisoformat(
-        info["attributes"]["time_coverage_start"]
-    )
-    common.end_datetime = datetime.fromisoformat(
-        info["attributes"]["time_coverage_end"]
-    )
+
 
     common.created = common.updated = now
 
@@ -187,6 +214,31 @@ async def extend_item(
 
     await gdal_mdiminfo_to_datacube(url, info, datacube, throttler)
     datacube.add_to(item)
+
+    time_dimension: Optional[TemporalDimension] = next(
+        (
+            dim
+            for dim in datacube.dimensions.values()
+            if dim.dim_type == DimensionType.TEMPORAL
+        ),
+        None
+    )
+
+    if "time_coverage_start" in info["attributes"]:
+        # TODO: fixup wrong iso-formats '2010-1-1T12:00:00Z' -> '2010-01-01T12:00:00Z'
+        common.start_datetime = parse_datetime(
+            info["attributes"]["time_coverage_start"]
+        )
+    elif time_dimension:
+        common.start_datetime = time_dimension.extent[0]
+
+    if "time_coverage_end" in info["attributes"]:
+        common.end_datetime = parse_datetime(
+            info["attributes"]["time_coverage_end"]
+        )
+    elif time_dimension:
+        common.end_datetime = time_dimension.extent[1]
+
     return item
 
 

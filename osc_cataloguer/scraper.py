@@ -32,10 +32,8 @@ def organize_links(
     directories = []
     files = []
     for link in links:
-        if base_href not in link:
-            continue
-
-        if directory_re.match(link):
+        # only follow links into the archive not outside
+        if directory_re.match(link) and base_href in link:
             directories.append(link)
         elif file_re.match(link):
             files.append(link)
@@ -68,6 +66,7 @@ async def _scrape_links(
             if link not in visited
         ]
     )
+    LOGGER.info(f"Found {len(sub_nodes)} directories")
 
     return ScrapeNode(base_href, sub_nodes, leaf_files)
 

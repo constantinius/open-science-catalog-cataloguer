@@ -20,6 +20,7 @@ from .build import build_catalog
 @click.option("--directory-pattern", default=".*/$", type=str)
 @click.option("--file-pattern", default=".*", type=str)
 @click.option("--request-throttle", "-t", default=10, type=int)
+@click.option("--single-file-items", is_flag=True)
 @click.option("--debug", is_flag=True)
 def catalog(
     base_href: str,
@@ -30,8 +31,10 @@ def catalog(
     directory_pattern: str = ".*/$",
     file_pattern: str = ".*",
     request_throttle: int = 10,
+    single_file_items: int = False,
     debug: bool = False,
 ):
+    print(single_file_items)
     logging.basicConfig(level=logging.DEBUG if debug else logging.INFO)
     links = asyncio.run(
         scrape_links(
@@ -53,10 +56,16 @@ def catalog(
         collection = pystac.Collection(
             "",
             "",
-            pystac.Extent(pystac.SpatialExtent([[]]), pystac.TemporalExtent([[]])),
+            pystac.Extent(
+                pystac.SpatialExtent([[]]), pystac.TemporalExtent([[]])
+            ),
         )
 
-    catalog = asyncio.run(build_catalog(links, item, collection))
+    catalog = asyncio.run(
+        build_catalog(
+            links, item, collection, request_throttle, single_file_items
+        )
+    )
     catalog.normalize_and_save(out_dir)
 
 

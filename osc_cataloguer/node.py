@@ -1,7 +1,15 @@
-from typing import NamedTuple, List
+from dataclasses import dataclass
+from typing import List
 
 
-class ScrapeNode(NamedTuple):
+@dataclass
+class FileMatch:
+    file_url: str
+    parser: str
+
+
+@dataclass
+class ScrapeNode:
     href: str
     sub_nodes: List["ScrapeNode"]
-    files: List[str]
+    file_matches: List[FileMatch]

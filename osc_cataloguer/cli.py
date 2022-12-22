@@ -18,7 +18,13 @@ from .build import build_catalog
 @click.option("--collection-template", type=str)
 @click.option("--out-dir", "-o", default="data", type=str)
 @click.option("--directory-pattern", default=".*/$", type=str)
-@click.option("--file-pattern", default=".*", type=str)
+@click.option(
+    "--file-pattern",
+    "-f",
+    multiple=True,
+    default=[(".*", "basic")],
+    type=(str, str),
+)
 @click.option("--request-throttle", "-t", default=10, type=int)
 @click.option("--single-file-items", is_flag=True)
 @click.option("--debug", is_flag=True)
@@ -29,7 +35,7 @@ def catalog(
     collection_template: Optional[TextIO] = None,
     out_dir: str = "data",
     directory_pattern: str = ".*/$",
-    file_pattern: str = ".*",
+    file_pattern: str = [(".*", "basic")],
     request_throttle: int = 10,
     single_file_items: int = False,
     debug: bool = False,

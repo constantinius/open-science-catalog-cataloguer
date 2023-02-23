@@ -1,6 +1,5 @@
 import asyncio
-from typing import List, Tuple, Optional
-from urllib.parse import urlparse
+from typing import List, Tuple
 import logging
 import re
 
@@ -82,7 +81,8 @@ async def scrape_links(
 ) -> List[ScrapeNode]:
     visited = set()
     throttler = asyncio.Semaphore(throttle_requests)
-    async with httpx.AsyncClient() as client:
+    transport = httpx.AsyncHTTPTransport(retries=5)
+    async with httpx.AsyncClient(transport=transport) as client:
         return await _scrape_links(
             base_href,
             visited,

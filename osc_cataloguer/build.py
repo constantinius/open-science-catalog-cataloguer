@@ -86,7 +86,7 @@ async def apply_file_match(
 ):
     if file_match.parser == "basic":
         item.add_asset(
-            "asset_name",
+            asset_name,
             pystac.Asset(
                 file_match.file_url,
                 media_type=mimetypes.guess_type(file_match.file_url)[0],

@@ -15,7 +15,16 @@ from .build import build_catalog
 @click.argument("base_href", type=str)
 @click.option("--root-href", type=str)
 @click.option("--item-template", type=str)
-@click.option("--collection-template", type=str)
+@click.option("--directory-template", type=str)
+@click.option(
+    "--directory-catalogs",
+    "directory_mode",
+    flag_value="catalogs",
+    default=True,
+)
+@click.option(
+    "--directory-collections", "directory_mode", flag_value="collections"
+)
 @click.option("--out-dir", "-o", default="data", type=str)
 @click.option("--directory-pattern", default=".*/$", type=str)
 @click.option(
@@ -32,12 +41,13 @@ def catalog(
     base_href: str,
     root_href: str,
     item_template: Optional[TextIO] = None,
-    collection_template: Optional[TextIO] = None,
+    directory_template: Optional[TextIO] = None,
+    directory_mode: str = "catalogs",
     out_dir: str = "data",
     directory_pattern: str = ".*/$",
     file_pattern: str = [(".*", "basic")],
     request_throttle: int = 10,
-    single_file_items: int = False,
+    single_file_items: bool = False,
     debug: bool = False,
 ):
     print(single_file_items)
@@ -52,27 +62,35 @@ def catalog(
     )
 
     if item_template:
-        item = pystac.Item.from_file(item_template)
+        item_template = pystac.Item.from_file(item_template)
     else:
-        item = pystac.Item("", None, None, datetime.min, {})
+        item_template = pystac.Item("", None, None, datetime.min, {})
 
-    if collection_template:
-        collection = pystac.Collection.from_file(collection_template)
-    else:
-        collection = pystac.Collection(
+    if directory_template:
+        dir_template = pystac.read_file(directory_template)
+    elif directory_mode == "collections":
+        dir_template = pystac.Collection(
             "",
             "",
             pystac.Extent(
                 pystac.SpatialExtent([[]]), pystac.TemporalExtent([[]])
             ),
         )
+    elif directory_mode == "catalogs":
+        dir_template = pystac.Catalog("", "")
 
     catalog = asyncio.run(
         build_catalog(
-            links, item, collection, request_throttle, single_file_items
+            links,
+            item_template,
+            dir_template,
+            request_throttle,
+            single_file_items,
         )
     )
-    catalog.normalize_and_save(out_dir)
+    catalog.normalize_and_save(
+        out_dir, catalog_type=pystac.CatalogType.SELF_CONTAINED
+    )
 
 
 if __name__ == "__main__":

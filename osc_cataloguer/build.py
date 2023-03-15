@@ -13,23 +13,23 @@ from .datacube import extend_item
 LOGGER = logging.getLogger(__name__)
 
 
-async def create_collection(
+async def create_directory(
     node: ScrapeNode,
     item_template: pystac.Item,
-    collection_template: pystac.Collection,
+    dir_template: pystac.Catalog,
     throttler: asyncio.Semaphore,
     single_file_items: bool,
 ) -> pystac.Catalog | pystac.Item:
     LOGGER.info(f"Creating collection for {node.href}")
-    collection = collection_template.full_copy()
+    collection = dir_template.full_copy()
     collection.id = basename(normpath(node.href))
 
     sub_collections = await asyncio.gather(
         *[
-            create_collection(
+            create_directory(
                 sub_node,
                 item_template,
-                collection_template,
+                dir_template,
                 throttler,
                 single_file_items,
             )
@@ -90,6 +90,7 @@ async def apply_file_match(
             pystac.Asset(
                 file_match.file_url,
                 media_type=mimetypes.guess_type(file_match.file_url)[0],
+                roles=["data"],
             )
         )
         return
@@ -132,15 +133,15 @@ async def create_item(
 async def build_catalog(
     root: ScrapeNode,
     item_template: pystac.Item,
-    collection_template: pystac.Collection,
+    dir_template: pystac.Catalog,
     throttle_requests: int = 10,
     single_file_items: bool = False,
 ) -> pystac.Catalog | pystac.Item:
     throttler = asyncio.Semaphore(throttle_requests)
-    return await create_collection(
+    return await create_directory(
         root,
         item_template,
-        collection_template,
+        dir_template,
         throttler,
         single_file_items,
     )

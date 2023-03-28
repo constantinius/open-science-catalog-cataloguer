@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Union, List
 import logging
 import asyncio
 import mimetypes
@@ -19,7 +19,7 @@ async def create_directory(
     dir_template: pystac.Catalog,
     throttler: asyncio.Semaphore,
     single_file_items: bool,
-) -> pystac.Catalog | pystac.Item:
+) -> Union[pystac.Catalog, pystac.Item]:
     LOGGER.info(f"Creating collection for {node.href}")
     collection = dir_template.full_copy()
     collection.id = basename(normpath(node.href))
@@ -136,7 +136,7 @@ async def build_catalog(
     dir_template: pystac.Catalog,
     throttle_requests: int = 10,
     single_file_items: bool = False,
-) -> pystac.Catalog | pystac.Item:
+) -> Union[pystac.Catalog, pystac.Item]:
     throttler = asyncio.Semaphore(throttle_requests)
     return await create_directory(
         root,
